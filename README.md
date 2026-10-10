@@ -19,3 +19,33 @@ uv run commuter
 调度器会一直运行，请将进程部署在持续在线的设备或服务上。真实 `.env` 文件已加入 Git 忽略规则，请勿提交密钥或个人坐标。
 
 如果高德路线查询或 Server 酱请求失败，程序会记录错误，不会发送路线查询失败的推送。
+
+## Docker 部署
+
+确保已安装 Docker Compose。首次部署时复制并编辑配置文件：
+
+```sh
+cp .env.example .env
+# 编辑 .env，填写密钥、坐标、时间和工作日
+docker compose up -d --build
+```
+
+查看运行日志：
+
+```sh
+docker compose logs -f
+```
+
+修改 `.env` 后重建并启动容器以加载新配置：
+
+```sh
+docker compose up -d --build
+```
+
+停止服务：
+
+```sh
+docker compose down
+```
+
+容器使用 `TIMEZONE` 配置的时区执行计划任务；`.env` 通过 Compose 在运行时注入，不会复制进镜像。容器以非 root 用户运行，并启用只读根文件系统。
