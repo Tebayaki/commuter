@@ -16,6 +16,17 @@ AMAP_URL = "https://restapi.amap.com/v3/direction/driving"
 
 logger = logging.getLogger(__name__)
 
+WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def parse_work_days(value: str) -> str:
+    """Convert comma-separated weekdays (1=Monday through 7=Sunday) for APScheduler."""
+    if not re.fullmatch(r"[1-7](?:\s*,\s*[1-7])*", value):
+        raise ValueError("WORK_DAY 必须是逗号分隔的数字 1-7（1=周一，7=周日）")
+
+    weekdays = dict.fromkeys(int(day.strip()) for day in value.split(","))
+    return ",".join(WEEKDAY_NAMES[day - 1] for day in weekdays)
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -29,6 +40,7 @@ class Settings:
     work_to_home_waypoints_b: str
     work_time: time
     home_time: time
+    work_day: str
     timezone: str
 
     @classmethod
@@ -40,6 +52,7 @@ class Settings:
             "WORK_POINT",
             "WORK_TIME",
             "HOME_TIME",
+            "WORK_DAY",
         )
         values = {name: os.environ.get(name, "").strip() for name in required_variables}
         missing = [name for name, value in values.items() if not value]
@@ -58,6 +71,7 @@ class Settings:
             home_time = time.fromisoformat(values["HOME_TIME"])
         except ValueError as exc:
             raise ValueError("WORK_TIME 和 HOME_TIME 必须使用 HH:MM 格式") from exc
+        parse_work_days(values["WORK_DAY"])
 
         return cls(
             amap_key=values["AMAP_KEY"],
@@ -78,6 +92,7 @@ class Settings:
             ).strip(),
             work_time=work_time,
             home_time=home_time,
+            work_day=values["WORK_DAY"],
             timezone=os.environ.get("TIMEZONE", "Asia/Shanghai"),
         )
 
@@ -182,6 +197,7 @@ def create_scheduler(settings: Settings) -> BlockingScheduler:
         trigger=CronTrigger(
             hour=settings.work_time.hour,
             minute=settings.work_time.minute,
+            day_of_week=parse_work_days(settings.work_day),
             timezone=scheduler_timezone,
         ),
         args=[
@@ -201,6 +217,7 @@ def create_scheduler(settings: Settings) -> BlockingScheduler:
         trigger=CronTrigger(
             hour=settings.home_time.hour,
             minute=settings.home_time.minute,
+            day_of_week=parse_work_days(settings.work_day),
             timezone=scheduler_timezone,
         ),
         args=[
@@ -226,7 +243,8 @@ def main() -> None:
     load_dotenv()
     settings = Settings.from_environment()
     logger.info(
-        "通勤评估任务已启动，每天 %s 和 %s 执行（时区：%s）",
+        "通勤评估任务已启动，每周 %s 的 %s 和 %s 执行（时区：%s）",
+        settings.work_day,
         settings.work_time.strftime("%H:%M"),
         settings.home_time.strftime("%H:%M"),
         settings.timezone,

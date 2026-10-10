@@ -2,7 +2,12 @@ import unittest
 from datetime import time
 from unittest.mock import MagicMock, call, patch
 
-from commuter.commuter import Settings, create_scheduler, evaluate_routes
+from commuter.commuter import (
+    Settings,
+    create_scheduler,
+    evaluate_routes,
+    parse_work_days,
+)
 
 
 class CommuterTests(unittest.TestCase):
@@ -18,6 +23,7 @@ class CommuterTests(unittest.TestCase):
             work_to_home_waypoints_b="evening-b",
             work_time=time(7, 45),
             home_time=time(18, 15),
+            work_day="1,2,3,4,5",
             timezone="Asia/Shanghai",
         )
 
@@ -74,6 +80,8 @@ class CommuterTests(unittest.TestCase):
         self.assertEqual(
             (evening_fields["hour"], evening_fields["minute"]), ("18", "15")
         )
+        self.assertEqual(morning_fields["day_of_week"], "mon,tue,wed,thu,fri")
+        self.assertEqual(evening_fields["day_of_week"], "mon,tue,wed,thu,fri")
         self.assertEqual(
             jobs["morning-commute"].args[1:5],
             ("home", "work", "morning-a", "morning-b"),
@@ -93,6 +101,7 @@ class CommuterTests(unittest.TestCase):
             "HOME_TO_WORK_WAYPOINTS_A": "configured-morning-a",
             "WORK_TIME": "06:35",
             "HOME_TIME": "19:20",
+            "WORK_DAY": "1,2,3,4,5",
         },
         clear=True,
     )
@@ -107,6 +116,7 @@ class CommuterTests(unittest.TestCase):
         self.assertEqual(settings.home_to_work_waypoints_b, "")
         self.assertEqual(settings.work_time, time(6, 35))
         self.assertEqual(settings.home_time, time(19, 20))
+        self.assertEqual(settings.work_day, "1,2,3,4,5")
 
     @patch.dict(
         "os.environ",
@@ -117,12 +127,40 @@ class CommuterTests(unittest.TestCase):
             "WORK_POINT": "configured-work",
             "WORK_TIME": "6:35",
             "HOME_TIME": "19:20",
+            "WORK_DAY": "1,2,3,4,5",
         },
         clear=True,
     )
     def test_settings_reject_invalid_schedule_time_format(self) -> None:
         with self.assertRaisesRegex(ValueError, "HH:MM"):
             Settings.from_environment()
+
+    @patch.dict(
+        "os.environ",
+        {
+            "AMAP_KEY": "configured-amap-key",
+            "SERVERCHAN_KEY": "configured-serverchan-key",
+            "HOME_POINT": "configured-home",
+            "WORK_POINT": "configured-work",
+            "WORK_TIME": "06:35",
+            "HOME_TIME": "19:20",
+            "WORK_DAY": "mon-fri",
+        },
+        clear=True,
+    )
+    def test_settings_reject_invalid_work_day(self) -> None:
+        with self.assertRaisesRegex(ValueError, "WORK_DAY"):
+            Settings.from_environment()
+
+    def test_work_day_numbers_map_monday_through_sunday(self) -> None:
+        self.assertEqual(parse_work_days("1,2,3,4,5"), "mon,tue,wed,thu,fri")
+        self.assertEqual(parse_work_days("7,1"), "sun,mon")
+
+    def test_work_day_rejects_values_outside_one_through_seven(self) -> None:
+        for invalid_days in ("0", "8", "1,,2", "1, mon", "1-5", ""):
+            with self.subTest(invalid_days=invalid_days):
+                with self.assertRaisesRegex(ValueError, "WORK_DAY"):
+                    parse_work_days(invalid_days)
 
     @patch("commuter.commuter.Settings.from_environment")
     @patch("commuter.commuter.load_dotenv")
