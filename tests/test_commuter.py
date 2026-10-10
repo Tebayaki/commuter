@@ -1,0 +1,152 @@
+import unittest
+from datetime import time
+from unittest.mock import MagicMock, call, patch
+
+from commuter.commuter import Settings, create_scheduler, evaluate_routes
+
+
+class CommuterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.settings = Settings(
+            amap_key="amap-test-key",
+            serverchan_key="serverchan-test-key",
+            home_point="home",
+            work_point="work",
+            home_to_work_waypoints_a="morning-a",
+            home_to_work_waypoints_b="morning-b",
+            work_to_home_waypoints_a="evening-a",
+            work_to_home_waypoints_b="evening-b",
+            work_time=time(7, 45),
+            home_time=time(18, 15),
+            timezone="Asia/Shanghai",
+        )
+
+    @patch("commuter.commuter.push_message")
+    @patch("commuter.commuter.get_route_duration")
+    def test_pushes_when_route_b_is_faster(
+        self, get_route_duration: MagicMock, push_message: MagicMock
+    ) -> None:
+        get_route_duration.side_effect = [(2400, 12000), (1800, 10000)]
+
+        evaluate_routes(
+            "上班", "home", "work", "morning-a", "morning-b", self.settings
+        )
+
+        push_message.assert_called_once()
+        args = push_message.call_args.args
+        self.assertIn("B 路线", args[0])
+        self.assertIn("快 10 分钟", args[1])
+        self.assertEqual(
+            get_route_duration.call_args_list,
+            [
+                call("home", "work", "morning-a", "amap-test-key"),
+                call("home", "work", "morning-b", "amap-test-key"),
+            ],
+        )
+
+    @patch("commuter.commuter.push_message")
+    @patch("commuter.commuter.get_route_duration")
+    def test_does_not_push_when_route_b_is_not_faster(
+        self, get_route_duration: MagicMock, push_message: MagicMock
+    ) -> None:
+        get_route_duration.side_effect = [(1800, 10000), (1800, 11000)]
+
+        evaluate_routes(
+            "下班", "work", "home", "evening-a", "evening-b", self.settings
+        )
+
+        push_message.assert_not_called()
+
+    def test_scheduler_has_morning_and_evening_jobs(self) -> None:
+        scheduler = create_scheduler(self.settings)
+        jobs = {job.id: job for job in scheduler.get_jobs()}
+
+        self.assertEqual(set(jobs), {"morning-commute", "evening-commute"})
+        morning_fields = {
+            field.name: str(field) for field in jobs["morning-commute"].trigger.fields
+        }
+        evening_fields = {
+            field.name: str(field) for field in jobs["evening-commute"].trigger.fields
+        }
+        self.assertEqual(
+            (morning_fields["hour"], morning_fields["minute"]), ("7", "45")
+        )
+        self.assertEqual(
+            (evening_fields["hour"], evening_fields["minute"]), ("18", "15")
+        )
+        self.assertEqual(
+            jobs["morning-commute"].args[1:5],
+            ("home", "work", "morning-a", "morning-b"),
+        )
+        self.assertEqual(
+            jobs["evening-commute"].args[1:5],
+            ("work", "home", "evening-a", "evening-b"),
+        )
+
+    @patch.dict(
+        "os.environ",
+        {
+            "AMAP_KEY": "configured-amap-key",
+            "SERVERCHAN_KEY": "configured-serverchan-key",
+            "HOME_POINT": "configured-home",
+            "WORK_POINT": "configured-work",
+            "HOME_TO_WORK_WAYPOINTS_A": "configured-morning-a",
+            "WORK_TIME": "06:35",
+            "HOME_TIME": "19:20",
+        },
+        clear=True,
+    )
+    def test_settings_load_coordinates_and_times_from_environment(self) -> None:
+        settings = Settings.from_environment()
+
+        self.assertEqual(settings.home_point, "configured-home")
+        self.assertEqual(settings.work_point, "configured-work")
+        self.assertEqual(
+            settings.home_to_work_waypoints_a, "configured-morning-a"
+        )
+        self.assertEqual(settings.home_to_work_waypoints_b, "")
+        self.assertEqual(settings.work_time, time(6, 35))
+        self.assertEqual(settings.home_time, time(19, 20))
+
+    @patch.dict(
+        "os.environ",
+        {
+            "AMAP_KEY": "configured-amap-key",
+            "SERVERCHAN_KEY": "configured-serverchan-key",
+            "HOME_POINT": "configured-home",
+            "WORK_POINT": "configured-work",
+            "WORK_TIME": "6:35",
+            "HOME_TIME": "19:20",
+        },
+        clear=True,
+    )
+    def test_settings_reject_invalid_schedule_time_format(self) -> None:
+        with self.assertRaisesRegex(ValueError, "HH:MM"):
+            Settings.from_environment()
+
+    @patch("commuter.commuter.Settings.from_environment")
+    @patch("commuter.commuter.load_dotenv")
+    @patch("commuter.commuter.logging.basicConfig")
+    @patch("commuter.commuter.create_scheduler")
+    def test_ctrl_c_shuts_down_scheduler_cleanly(
+        self,
+        create_scheduler_mock: MagicMock,
+        _basic_config_mock: MagicMock,
+        _load_dotenv_mock: MagicMock,
+        from_environment_mock: MagicMock,
+    ) -> None:
+        scheduler = MagicMock()
+        scheduler.start.side_effect = KeyboardInterrupt
+        create_scheduler_mock.return_value = scheduler
+        from_environment_mock.return_value = self.settings
+
+        from commuter.commuter import main
+
+        main()
+
+        scheduler.start.assert_called_once_with()
+        scheduler.shutdown.assert_called_once_with(wait=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

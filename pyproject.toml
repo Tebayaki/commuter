@@ -1,0 +1,22 @@
+[project]
+name = "commuter"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Tebayaki", email = "kongjiancong@qq.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "apscheduler>=3.10,<4",
+    "dotenv>=0.9.9",
+    "python-dotenv>=1.0,<2",
+    "requests>=2.34.2",
+]
+
+[project.scripts]
+commuter = "commuter:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
