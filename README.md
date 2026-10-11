@@ -38,14 +38,32 @@ uv run commuter-once
 
 ## Docker 部署
 
+### docker run
+
 ```sh
-cp .env.example .env
-# 编辑 .env，填写密钥、坐标、时间和工作日
-docker compose up -d --build
+docker run -d --rm --env-file .env --name commuter tebayaki/commuter:latest
 ```
 
-容器内执行一次查询：
+执行一次查询：
 
 ```sh
-docker compose run --rm commuter commuter-once
+docker run --rm --env-file .env tebayaki/commuter:latest commuter-once
+```
+
+### docker compose
+
+```yaml
+services:
+  commuter:
+    image: tebayaki/commuter:latest
+    container_name: commuter
+    env_file:
+      - .env
+    restart: unless-stopped
+```
+
+或者clone该项目后自行构建:
+
+```sh
+docker compose up -d --build
 ```
