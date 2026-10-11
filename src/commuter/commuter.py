@@ -32,6 +32,15 @@ def parse_workdays(value: str) -> str:
     return ",".join(weekday_names[day - 1] for day in weekdays)
 
 
+def weekdays_to_readable_text(value: str) -> str:
+    """Convert comma-separated APScheduler weekdays to human readable text."""
+    WEEKDAYS = {"mon": "一", "tue": "二", "wed": "三", "thu": "四", "fri": "五", "sat": "六", "sun": "日"}
+    selected = value.split(",")
+    if (set(selected) == set(WEEKDAYS)):
+        return "每天"
+    return "每周" + "、".join(WEEKDAYS[day] for day in WEEKDAYS if day in selected)
+
+
 @dataclass(frozen=True)
 class Route:
     name: str
@@ -380,6 +389,14 @@ def main() -> None:
     settings = resolve_locations(Settings.from_config())
     scheduler = create_scheduler(settings)
     previous_sigterm_handler = signal.signal(signal.SIGTERM, _handle_sigterm)
+
+    logger.info(
+        "通勤评估任务已创建，每周 %s 的 %s 和 %s 执行（时区：%s）",
+        weekdays_to_readable_text(settings.workdays),
+        settings.work_time.strftime("%H:%M"),
+        settings.home_time.strftime("%H:%M"),
+        settings.timezone,
+    )
     try:
         scheduler.start()
     except KeyboardInterrupt:
