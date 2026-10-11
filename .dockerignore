@@ -1,4 +1,5 @@
 .env
+config.yaml
 .env.*
 !.env.example
 .git

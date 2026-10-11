@@ -1,0 +1,38 @@
+amap_key: "${AMAP_KEY}"
+serverchan_key: "${SERVERCHAN_KEY}"
+
+work_time: "09:00"
+home_time: "17:00"
+workdays: "1,2,3,4,5"
+timezone: Asia/Shanghai
+
+home_point:
+  city: 北京
+  address: 春明西路(公交站)
+work_point:
+  city: 北京
+  address: 辟才胡同(公交站)
+
+home_to_work_routes:
+  - name: 朗清园西站-西单路口东方向
+    waypoints:
+      - coordinate: 116.742773,39.892519
+      - city: 北京
+        address: 西单路口东(公交站)
+  - name: 胡各庄新村-民族文化宫方向
+    waypoints:
+      - coordinate: 116.735235,39.910376
+      - coordinate: 116.364479,39.907269
+
+work_to_home_routes:
+  - name: 春明西路方向
+    waypoints:
+      - coordinate: 116.752105,39.894796
+  - name: 金融街购物中心-通州北关方向
+    waypoints:
+      - coordinate: 116.361563,39.915619
+      - city: 北京
+        address: 通州北关(地铁站)
+
+# When true, also notify if the first route is fastest.
+push_when_first_route_win: false

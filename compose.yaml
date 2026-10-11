@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
     init: true
     read_only: true
     tmpfs:

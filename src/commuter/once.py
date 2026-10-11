@@ -14,19 +14,17 @@ def run_once(settings: Settings) -> None:
         "上班",
         settings.home_point,
         settings.work_point,
-        settings.home_to_work_waypoints_a,
-        settings.home_to_work_waypoints_b,
+        settings.home_to_work_routes,
         settings,
-        notify_when_a_is_faster=True,
+        notify_when_first_route_wins=True,
     )
     evaluate_routes(
         "下班",
         settings.work_point,
         settings.home_point,
-        settings.work_to_home_waypoints_a,
-        settings.work_to_home_waypoints_b,
+        settings.work_to_home_routes,
         settings,
-        notify_when_a_is_faster=True,
+        notify_when_first_route_wins=True,
     )
 
 
@@ -36,4 +34,4 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     load_dotenv()
-    run_once(Settings.from_environment())
+    run_once(Settings.from_config())
