@@ -30,10 +30,22 @@ uv sync
 uv run commuter
 ```
 
+需要立即查询并推送上班、下班两方向的路线建议（不论 A 或 B 路线更快），运行：
+
+```sh
+uv run commuter-once
+```
+
 ## Docker 部署
 
 ```sh
 cp .env.example .env
 # 编辑 .env，填写密钥、坐标、时间和工作日
 docker compose up -d --build
+```
+
+容器内执行一次查询：
+
+```sh
+docker compose run --rm commuter commuter-once
 ```

@@ -8,6 +8,7 @@ from commuter.commuter import (
     evaluate_routes,
     parse_work_days,
 )
+from commuter.once import run_once
 
 
 class CommuterTests(unittest.TestCase):
@@ -62,6 +63,27 @@ class CommuterTests(unittest.TestCase):
         )
 
         push_message.assert_not_called()
+
+    @patch("commuter.commuter.push_message")
+    @patch("commuter.commuter.get_route_duration")
+    def test_one_shot_pushes_recommendation_for_a_and_b_winners(
+        self, get_route_duration: MagicMock, push_message: MagicMock
+    ) -> None:
+        get_route_duration.side_effect = [
+            (1800, 10000),
+            (2400, 12000),
+            (3000, 15000),
+            (2100, 11000),
+        ]
+
+        run_once(self.settings)
+
+        self.assertEqual(push_message.call_count, 2)
+        self.assertIn("上班走 A 路线", push_message.call_args_list[0].args[0])
+        self.assertIn("下班走 B 路线", push_message.call_args_list[1].args[0])
+        self.assertIn("A 路线", push_message.call_args_list[0].args[1])
+        self.assertIn("B 路线", push_message.call_args_list[1].args[1])
+        self.assertEqual(get_route_duration.call_count, 4)
 
     def test_scheduler_has_morning_and_evening_jobs(self) -> None:
         scheduler = create_scheduler(self.settings)

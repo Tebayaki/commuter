@@ -150,8 +150,10 @@ def evaluate_routes(
     waypoints_a: str,
     waypoints_b: str,
     settings: Settings,
+    *,
+    notify_when_a_is_faster: bool = False,
 ) -> None:
-    """Compare routes A and B and notify only when route B is faster."""
+    """Compare routes A and B and notify according to the configured policy."""
     duration_a, distance_a = get_route_duration(
         departure, destination, waypoints_a, settings.amap_key
     )
@@ -159,7 +161,7 @@ def evaluate_routes(
         departure, destination, waypoints_b, settings.amap_key
     )
 
-    if duration_b >= duration_a:
+    if duration_b >= duration_a and not notify_when_a_is_faster:
         logger.info(
             "%s：B路线未更快（A %d 分钟，B %d 分钟），不推送",
             commute_name,
@@ -168,16 +170,22 @@ def evaluate_routes(
         )
         return
 
-    faster_by = (duration_a - duration_b) // 60
+    if duration_b < duration_a:
+        recommended = "B 路线"
+        faster_by = (duration_a - duration_b) // 60
+    else:
+        recommended = "A 路线"
+        faster_by = (duration_b - duration_a) // 60
+
     content = (
-        f"## 建议：{commute_name}走 B 路线，预计快 {faster_by} 分钟\n\n"
+        f"## 建议：{commute_name}走 {recommended}，预计快 {faster_by} 分钟\n\n"
         "| 路线 | 耗时 | 距离 |\n"
         "|------|------|------|\n"
         f"| A 路线 | {duration_a // 60} 分钟 | {distance_a / 1000:.1f} km |\n"
         f"| B 路线 | {duration_b // 60} 分钟 | {distance_b / 1000:.1f} km |\n"
     )
     push_message(
-        f"通勤建议：{commute_name}走 B 路线",
+        f"通勤建议：{commute_name}走 {recommended}",
         content,
         settings.serverchan_key,
     )
