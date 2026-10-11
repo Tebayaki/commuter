@@ -20,7 +20,7 @@
 | `WORK_DAY` | 工作日，格式为逗号分隔的`1,2,3,4,5,6,7`，分别表示周一到周日 | 选填 | 1,2,3,4,5 |
 | `TIMEZONE` | 调度器时区 | 选填 | Asia/Shanghai |
 
-坐标可通过https://www.amap.com/ssr/coordinate-picker查询
+> TIP: 坐标可通过[坐标拾取\_高德地图](https://www.amap.com/ssr/coordinate-picker)查询
 
 ```sh
 cp .env.example .env
