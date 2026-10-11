@@ -1,8 +1,44 @@
-import requests
 import re
+from collections import deque
+from threading import Lock
+from time import monotonic, sleep
+
+import requests
 
 AMAP_DIRECTION_URL = "https://restapi.amap.com/v3/direction/driving"
 AMAP_GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
+AMAP_REQUEST_RATE_LIMIT = 3
+AMAP_REQUEST_RATE_WINDOW = 1.0
+_request_starts: deque[float] = deque()
+_request_starts_lock = Lock()
+
+
+def _wait_for_request_slot() -> None:
+    """Limit the process to three Amap request starts in every rolling second."""
+    while True:
+        with _request_starts_lock:
+            now = monotonic()
+            while (
+                _request_starts
+                and now - _request_starts[0] >= AMAP_REQUEST_RATE_WINDOW
+            ):
+                _request_starts.popleft()
+            if len(_request_starts) < AMAP_REQUEST_RATE_LIMIT:
+                _request_starts.append(now)
+                return
+            wait_seconds = (
+                AMAP_REQUEST_RATE_WINDOW - (now - _request_starts[0])
+            )
+        sleep(wait_seconds)
+
+
+def _get_response(url: str, params: dict[str, str]) -> requests.Response:
+    """Send a request within Amap's per-second request rate limit."""
+    _wait_for_request_slot()
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
+    return response
+
 
 def geocode_address(address: str, amap_key: str, city: str = "") -> str:
     """Convert an address into an Amap longitude,latitude coordinate."""
@@ -10,8 +46,7 @@ def geocode_address(address: str, amap_key: str, city: str = "") -> str:
     if city:
         params["city"] = city
 
-    response = requests.get(AMAP_GEOCODE_URL, params=params, timeout=10)
-    response.raise_for_status()
+    response = _get_response(AMAP_GEOCODE_URL, params)
     result = response.json()
     if result.get("status") != "1":
         raise RuntimeError(f"高德地址解析失败：{result.get('info', '未知错误')}")
@@ -48,8 +83,7 @@ def get_route_duration(
     if waypoints:
         params["waypoints"] = waypoints
 
-    response = requests.get(AMAP_DIRECTION_URL, params=params, timeout=10)
-    response.raise_for_status()
+    response = _get_response(AMAP_DIRECTION_URL, params)
     result = response.json()
     if result.get("status") != "1":
         raise RuntimeError(f"高德路线查询失败：{result.get('info', '未知错误')}")

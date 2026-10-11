@@ -2,12 +2,20 @@ import os
 import signal
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import time
 from pathlib import Path
+from threading import Lock
+from time import monotonic, sleep
 from unittest.mock import MagicMock, call, patch
 
-from commuter.amap import geocode_address
+from commuter.amap import (
+    AMAP_DIRECTION_URL,
+    AMAP_GEOCODE_URL,
+    geocode_address,
+    get_route_duration,
+)
 from commuter.commuter import (
     Route,
     Settings,
@@ -253,6 +261,58 @@ class CommuterTests(unittest.TestCase):
         self.assertEqual(location, "116.480881,39.989410")
         self.assertEqual(get_mock.call_args.kwargs["params"]["city"], "北京")
         response.raise_for_status.assert_called_once_with()
+
+    def test_all_amap_requests_share_three_per_second_rate_limit_only(self) -> None:
+        active_requests = 0
+        maximum_active_requests = 0
+        request_count = 0
+        request_start_times: list[float] = []
+        lock = Lock()
+
+        def fake_get(url: str, **_kwargs: object) -> MagicMock:
+            nonlocal active_requests, maximum_active_requests, request_count
+            with lock:
+                request_start_times.append(monotonic())
+                active_requests += 1
+                request_count += 1
+                maximum_active_requests = max(
+                    maximum_active_requests, active_requests
+                )
+            sleep(1.1)
+            with lock:
+                active_requests -= 1
+
+            response = MagicMock()
+            if url == AMAP_GEOCODE_URL:
+                response.json.return_value = {
+                    "status": "1",
+                    "geocodes": [{"location": "116.480881,39.989410"}],
+                }
+            else:
+                response.json.return_value = {
+                    "status": "1",
+                    "route": {"paths": [{"duration": "600", "distance": "1000"}]},
+                }
+            return response
+
+        def request(index: int) -> None:
+            if index % 2:
+                get_route_duration("116,39", "117,40", "", "key")
+            else:
+                geocode_address("北京地址", "key")
+
+        with patch("commuter.amap.requests.get", side_effect=fake_get):
+            with ThreadPoolExecutor(max_workers=12) as executor:
+                list(executor.map(request, range(12)))
+
+        self.assertEqual(request_count, 12)
+        self.assertGreater(maximum_active_requests, 3)
+        for start_time in request_start_times:
+            calls_in_window = sum(
+                0 <= other_start - start_time < 1.0
+                for other_start in request_start_times
+            )
+            self.assertLessEqual(calls_in_window, 3)
 
     @patch("commuter.commuter.geocode_address")
     def test_resolve_locations_geocodes_yaml_addresses_and_waypoints(
