@@ -99,6 +99,9 @@ class CommuterTests(unittest.TestCase):
             "HOME_POINT": "configured-home",
             "WORK_POINT": "configured-work",
             "HOME_TO_WORK_WAYPOINTS_A": "configured-morning-a",
+            "HOME_TO_WORK_WAYPOINTS_B": "configured-morning-b",
+            "WORK_TO_HOME_WAYPOINTS_A": "configured-evening-a",
+            "WORK_TO_HOME_WAYPOINTS_B": "configured-evening-b",
             "WORK_TIME": "06:35",
             "HOME_TIME": "19:20",
             "WORK_DAY": "1,2,3,4,5",
@@ -113,7 +116,15 @@ class CommuterTests(unittest.TestCase):
         self.assertEqual(
             settings.home_to_work_waypoints_a, "configured-morning-a"
         )
-        self.assertEqual(settings.home_to_work_waypoints_b, "")
+        self.assertEqual(
+            settings.home_to_work_waypoints_b, "configured-morning-b"
+        )
+        self.assertEqual(
+            settings.work_to_home_waypoints_a, "configured-evening-a"
+        )
+        self.assertEqual(
+            settings.work_to_home_waypoints_b, "configured-evening-b"
+        )
         self.assertEqual(settings.work_time, time(6, 35))
         self.assertEqual(settings.home_time, time(19, 20))
         self.assertEqual(settings.work_day, "1,2,3,4,5")
@@ -125,6 +136,34 @@ class CommuterTests(unittest.TestCase):
             "SERVERCHAN_KEY": "configured-serverchan-key",
             "HOME_POINT": "configured-home",
             "WORK_POINT": "configured-work",
+            "HOME_TO_WORK_WAYPOINTS_A": "configured-morning-a",
+            "HOME_TO_WORK_WAYPOINTS_B": "configured-morning-b",
+            "WORK_TO_HOME_WAYPOINTS_A": "configured-evening-a",
+            "WORK_TO_HOME_WAYPOINTS_B": "configured-evening-b",
+        },
+        clear=True,
+    )
+    def test_settings_use_readme_defaults_for_optional_environment(
+        self,
+    ) -> None:
+        settings = Settings.from_environment()
+
+        self.assertEqual(settings.work_time, time(9, 0))
+        self.assertEqual(settings.home_time, time(17, 0))
+        self.assertEqual(settings.work_day, "1,2,3,4,5")
+        self.assertEqual(settings.timezone, "Asia/Shanghai")
+
+    @patch.dict(
+        "os.environ",
+        {
+            "AMAP_KEY": "configured-amap-key",
+            "SERVERCHAN_KEY": "configured-serverchan-key",
+            "HOME_POINT": "configured-home",
+            "WORK_POINT": "configured-work",
+            "HOME_TO_WORK_WAYPOINTS_A": "configured-morning-a",
+            "HOME_TO_WORK_WAYPOINTS_B": "configured-morning-b",
+            "WORK_TO_HOME_WAYPOINTS_A": "configured-evening-a",
+            "WORK_TO_HOME_WAYPOINTS_B": "configured-evening-b",
             "WORK_TIME": "6:35",
             "HOME_TIME": "19:20",
             "WORK_DAY": "1,2,3,4,5",
@@ -142,6 +181,10 @@ class CommuterTests(unittest.TestCase):
             "SERVERCHAN_KEY": "configured-serverchan-key",
             "HOME_POINT": "configured-home",
             "WORK_POINT": "configured-work",
+            "HOME_TO_WORK_WAYPOINTS_A": "configured-morning-a",
+            "HOME_TO_WORK_WAYPOINTS_B": "configured-morning-b",
+            "WORK_TO_HOME_WAYPOINTS_A": "configured-evening-a",
+            "WORK_TO_HOME_WAYPOINTS_B": "configured-evening-b",
             "WORK_TIME": "06:35",
             "HOME_TIME": "19:20",
             "WORK_DAY": "mon-fri",

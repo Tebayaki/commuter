@@ -50,9 +50,10 @@ class Settings:
             "SERVERCHAN_KEY",
             "HOME_POINT",
             "WORK_POINT",
-            "WORK_TIME",
-            "HOME_TIME",
-            "WORK_DAY",
+            "HOME_TO_WORK_WAYPOINTS_A",
+            "HOME_TO_WORK_WAYPOINTS_B",
+            "WORK_TO_HOME_WAYPOINTS_A",
+            "WORK_TO_HOME_WAYPOINTS_B",
         )
         values = {name: os.environ.get(name, "").strip() for name in required_variables}
         missing = [name for name, value in values.items() if not value]
@@ -60,40 +61,35 @@ class Settings:
             raise ValueError(
                 f"请配置必需的环境变量：{', '.join(missing)}"
             )
+        
+        work_time = os.environ.get("WORK_TIME", "09:00")
+        home_time = os.environ.get("HOME_TIME", "17:00")
+        work_day = os.environ.get("WORK_DAY", "1,2,3,4,5")
+        timezone = os.environ.get("TIMEZONE", "Asia/Shanghai")
 
         time_pattern = r"(?:[01]\d|2[0-3]):[0-5]\d"
-        if not re.fullmatch(time_pattern, values["WORK_TIME"]) or not re.fullmatch(
-            time_pattern, values["HOME_TIME"]
-        ):
+        if not re.fullmatch(time_pattern, work_time) or not re.fullmatch(time_pattern, home_time):
             raise ValueError("WORK_TIME 和 HOME_TIME 必须使用 HH:MM 格式")
         try:
-            work_time = time.fromisoformat(values["WORK_TIME"])
-            home_time = time.fromisoformat(values["HOME_TIME"])
+            work_time = time.fromisoformat(work_time)
+            home_time = time.fromisoformat(home_time)
         except ValueError as exc:
             raise ValueError("WORK_TIME 和 HOME_TIME 必须使用 HH:MM 格式") from exc
-        parse_work_days(values["WORK_DAY"])
+        parse_work_days(work_day)
 
         return cls(
             amap_key=values["AMAP_KEY"],
             serverchan_key=values["SERVERCHAN_KEY"],
             home_point=values["HOME_POINT"],
             work_point=values["WORK_POINT"],
-            home_to_work_waypoints_a=os.environ.get(
-                "HOME_TO_WORK_WAYPOINTS_A", ""
-            ).strip(),
-            home_to_work_waypoints_b=os.environ.get(
-                "HOME_TO_WORK_WAYPOINTS_B", ""
-            ).strip(),
-            work_to_home_waypoints_a=os.environ.get(
-                "WORK_TO_HOME_WAYPOINTS_A", ""
-            ).strip(),
-            work_to_home_waypoints_b=os.environ.get(
-                "WORK_TO_HOME_WAYPOINTS_B", ""
-            ).strip(),
+            home_to_work_waypoints_a=values["HOME_TO_WORK_WAYPOINTS_A"],
+            home_to_work_waypoints_b=values["HOME_TO_WORK_WAYPOINTS_B"],
+            work_to_home_waypoints_a=values["WORK_TO_HOME_WAYPOINTS_A"],
+            work_to_home_waypoints_b=values["WORK_TO_HOME_WAYPOINTS_B"],
             work_time=work_time,
             home_time=home_time,
-            work_day=values["WORK_DAY"],
-            timezone=os.environ.get("TIMEZONE", "Asia/Shanghai"),
+            work_day=work_day,
+            timezone=timezone,
         )
 
 
