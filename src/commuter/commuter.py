@@ -3,7 +3,7 @@
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import time
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
 AMAP_URL = "https://restapi.amap.com/v3/direction/driving"
+GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class Settings:
             raise ValueError(
                 f"请配置必需的环境变量：{', '.join(missing)}"
             )
-        
+
         work_time = os.environ.get("WORK_TIME", "09:00")
         home_time = os.environ.get("HOME_TIME", "17:00")
         work_day = os.environ.get("WORK_DAY", "1,2,3,4,5")
@@ -91,6 +92,78 @@ class Settings:
             work_day=work_day,
             timezone=timezone,
         )
+
+
+def geocode_address(address: str, amap_key: str, city: str = "") -> str:
+    """Convert an address into an Amap longitude,latitude coordinate."""
+    params = {"key": amap_key, "address": address, "output": "json"}
+    if city:
+        params["city"] = city
+
+    response = requests.get(GEOCODE_URL, params=params, timeout=10)
+    response.raise_for_status()
+    result = response.json()
+    if result.get("status") != "1":
+        raise RuntimeError(f"高德地址解析失败：{result.get('info', '未知错误')}")
+
+    geocodes = result.get("geocodes", [])
+    if (
+        not isinstance(geocodes, list)
+        or not geocodes
+        or not isinstance(geocodes[0], dict)
+        or not geocodes[0].get("location")
+    ):
+        raise RuntimeError(f"高德地址解析失败：未找到地址“{address}”")
+    location = geocodes[0]["location"]
+    if not isinstance(location, str) or not re.fullmatch(
+        r"-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?", location
+    ):
+        raise RuntimeError("高德地址解析失败：返回的坐标格式无效")
+    return location
+
+
+def resolve_location(value: str, amap_key: str) -> str:
+    """Return coordinates unchanged or geocode an address optionally prefixed by city@."""
+    value = value.strip()
+    if re.fullmatch(r"-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?", value):
+        return value
+
+    if "@" in value:
+        city, address = value.split("@", maxsplit=1)
+    else:
+        city, address = "", value
+    if not address.strip():
+        raise ValueError("地址不能为空，格式应为 city@address 或 address")
+    return geocode_address(address.strip(), amap_key, city.strip())
+
+
+def resolve_waypoints(value: str, amap_key: str) -> str:
+    """Resolve a semicolon-separated list of coordinates and/or addresses."""
+    return ";".join(
+        resolve_location(location, amap_key)
+        for location in value.split(";")
+    )
+
+
+def resolve_locations(settings: Settings) -> Settings:
+    """Resolve endpoints and route waypoints before starting evaluations."""
+    return replace(
+        settings,
+        home_point=resolve_location(settings.home_point, settings.amap_key),
+        work_point=resolve_location(settings.work_point, settings.amap_key),
+        home_to_work_waypoints_a=resolve_waypoints(
+            settings.home_to_work_waypoints_a, settings.amap_key
+        ),
+        home_to_work_waypoints_b=resolve_waypoints(
+            settings.home_to_work_waypoints_b, settings.amap_key
+        ),
+        work_to_home_waypoints_a=resolve_waypoints(
+            settings.work_to_home_waypoints_a, settings.amap_key
+        ),
+        work_to_home_waypoints_b=resolve_waypoints(
+            settings.work_to_home_waypoints_b, settings.amap_key
+        ),
+    )
 
 
 def get_route_duration(
@@ -245,7 +318,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     load_dotenv()
-    settings = Settings.from_environment()
+    settings = resolve_locations(Settings.from_environment())
     logger.info(
         "通勤评估任务已启动，每周 %s 的 %s 和 %s 执行（时区：%s）",
         settings.work_day,
