@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+import signal
 from dataclasses import dataclass, replace
 from datetime import time
 from zoneinfo import ZoneInfo
@@ -34,6 +35,10 @@ def weekdays_to_readable_text(value: str) -> str:
     if (set(selected) == set(WEEKDAYS)):
         return "每天"
     return "每周" + "、".join(WEEKDAYS[day] for day in WEEKDAYS if day in selected)
+
+
+def _handle_sigterm(_signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt
 
 
 @dataclass(frozen=True)
@@ -255,8 +260,13 @@ def main() -> None:
         settings.home_time.strftime("%H:%M"),
         settings.timezone,
     )
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, _handle_sigterm)
     try:
         scheduler.start()
     except KeyboardInterrupt:
-        logger.info("Keyboard interrupt event received, shutting down scheduler...")
-        scheduler.shutdown(wait=True)
+        logger.info("收到 Ctrl+C 或 SIGTERM，正在关闭调度器并等待正在运行的任务")
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        if scheduler.running:
+            scheduler.shutdown(wait=True)
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)

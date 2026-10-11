@@ -1,3 +1,4 @@
+import signal
 import unittest
 from dataclasses import replace
 from datetime import time
@@ -447,6 +448,40 @@ class CommuterTests(unittest.TestCase):
 
         scheduler.start.assert_called_once_with()
         scheduler.shutdown.assert_called_once_with(wait=True)
+
+    @patch("commuter.commuter.Settings.from_environment")
+    @patch("commuter.commuter.load_dotenv")
+    @patch("commuter.commuter.logging.basicConfig")
+    @patch("commuter.commuter.create_scheduler")
+    def test_sigterm_shuts_down_scheduler_and_restores_handler(
+        self,
+        create_scheduler_mock: MagicMock,
+        _basic_config_mock: MagicMock,
+        _load_dotenv_mock: MagicMock,
+        from_environment_mock: MagicMock,
+    ) -> None:
+        scheduler = MagicMock()
+        create_scheduler_mock.return_value = scheduler
+        from_environment_mock.return_value = self.settings
+        handlers = {}
+
+        def fake_signal(signum: int, handler: object) -> object:
+            previous_handler = handlers.get(signum, signal.SIG_DFL)
+            handlers[signum] = handler
+            return previous_handler
+
+        scheduler.start.side_effect = lambda: handlers[signal.SIGTERM](
+            signal.SIGTERM, None
+        )
+
+        from commuter.commuter import main
+
+        with patch("commuter.commuter.signal.signal", side_effect=fake_signal):
+            main()
+
+        scheduler.start.assert_called_once_with()
+        scheduler.shutdown.assert_called_once_with(wait=True)
+        self.assertIs(handlers[signal.SIGTERM], signal.SIG_DFL)
 
 
 if __name__ == "__main__":
