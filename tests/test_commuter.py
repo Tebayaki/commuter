@@ -7,12 +7,13 @@ from commuter.commuter import (
     Settings,
     create_scheduler,
     evaluate_routes,
-    geocode_address,
-    parse_work_days,
+    parse_workdays,
     resolve_location,
     resolve_locations,
     resolve_waypoints,
+    weekdays_to_readable_text,
 )
+from commuter.amap import geocode_address
 from commuter.once import run_once
 
 
@@ -29,7 +30,7 @@ class CommuterTests(unittest.TestCase):
             work_to_home_waypoints_b="116.440000,39.940000",
             work_time=time(7, 45),
             home_time=time(18, 15),
-            work_day="1,2,3,4,5",
+            workdays="mon,tue,wed,thu,fri",
             timezone="Asia/Shanghai",
         )
 
@@ -156,7 +157,7 @@ class CommuterTests(unittest.TestCase):
             "WORK_TO_HOME_WAYPOINTS_B": "configured-evening-b",
             "WORK_TIME": "06:35",
             "HOME_TIME": "19:20",
-            "WORK_DAY": "1,2,3,4,5",
+            "WORKDAYS": "1,2,3,4,5",
         },
         clear=True,
     )
@@ -179,7 +180,7 @@ class CommuterTests(unittest.TestCase):
         )
         self.assertEqual(settings.work_time, time(6, 35))
         self.assertEqual(settings.home_time, time(19, 20))
-        self.assertEqual(settings.work_day, "1,2,3,4,5")
+        self.assertEqual(settings.workdays, "mon,tue,wed,thu,fri")
 
     @patch.dict(
         "os.environ",
@@ -202,7 +203,7 @@ class CommuterTests(unittest.TestCase):
 
         self.assertEqual(settings.work_time, time(9, 0))
         self.assertEqual(settings.home_time, time(17, 0))
-        self.assertEqual(settings.work_day, "1,2,3,4,5")
+        self.assertEqual(settings.workdays, "mon,tue,wed,thu,fri")
         self.assertEqual(settings.timezone, "Asia/Shanghai")
 
     @patch.dict(
@@ -218,7 +219,7 @@ class CommuterTests(unittest.TestCase):
             "WORK_TO_HOME_WAYPOINTS_B": "configured-evening-b",
             "WORK_TIME": "6:35",
             "HOME_TIME": "19:20",
-            "WORK_DAY": "1,2,3,4,5",
+            "WORKDAYS": "1,2,3,4,5",
         },
         clear=True,
     )
@@ -239,12 +240,12 @@ class CommuterTests(unittest.TestCase):
             "WORK_TO_HOME_WAYPOINTS_B": "configured-evening-b",
             "WORK_TIME": "06:35",
             "HOME_TIME": "19:20",
-            "WORK_DAY": "mon-fri",
+            "WORKDAYS": "weekday",
         },
         clear=True,
     )
-    def test_settings_reject_invalid_work_day(self) -> None:
-        with self.assertRaisesRegex(ValueError, "WORK_DAY"):
+    def test_settings_reject_invalid_workdays(self) -> None:
+        with self.assertRaisesRegex(ValueError, "WORKDAYS"):
             Settings.from_environment()
 
     @patch.dict(
@@ -269,7 +270,7 @@ class CommuterTests(unittest.TestCase):
         )
         self.assertEqual(settings.work_point, "北京市海淀区中关村大街1号")
 
-    @patch("commuter.commuter.requests.get")
+    @patch("commuter.amap.requests.get")
     def test_geocode_address_returns_coordinate_and_passes_city(
         self, get_mock: MagicMock
     ) -> None:
@@ -297,7 +298,7 @@ class CommuterTests(unittest.TestCase):
         )
         response.raise_for_status.assert_called_once_with()
 
-    @patch("commuter.commuter.requests.get")
+    @patch("commuter.amap.requests.get")
     def test_geocode_address_raises_when_no_match(self, get_mock: MagicMock) -> None:
         response = MagicMock()
         response.json.return_value = {"status": "1", "geocodes": []}
@@ -404,15 +405,25 @@ class CommuterTests(unittest.TestCase):
             ],
         )
 
-    def test_work_day_numbers_map_monday_through_sunday(self) -> None:
-        self.assertEqual(parse_work_days("1,2,3,4,5"), "mon,tue,wed,thu,fri")
-        self.assertEqual(parse_work_days("7,1"), "sun,mon")
+    def test_workdays_numbers_map_monday_through_sunday(self) -> None:
+        self.assertEqual(parse_workdays("1,2,3,4,5"), "mon,tue,wed,thu,fri")
+        self.assertEqual(parse_workdays("7,1"), "sun,mon")
 
-    def test_work_day_rejects_values_outside_one_through_seven(self) -> None:
+    def test_workdays_reject_values_outside_one_through_seven(self) -> None:
         for invalid_days in ("0", "8", "1,,2", "1, mon", "1-5", ""):
             with self.subTest(invalid_days=invalid_days):
-                with self.assertRaisesRegex(ValueError, "WORK_DAY"):
-                    parse_work_days(invalid_days)
+                with self.assertRaisesRegex(ValueError, "WORKDAYS"):
+                    parse_workdays(invalid_days)
+
+    def test_weekdays_to_readable_text(self) -> None:
+        self.assertEqual(
+            weekdays_to_readable_text("mon,tue,wed,thu,fri"),
+            "每周一、二、三、四、五",
+        )
+        self.assertEqual(
+            weekdays_to_readable_text("mon,tue,wed,thu,fri,sat,sun"),
+            "每天",
+        )
 
     @patch("commuter.commuter.Settings.from_environment")
     @patch("commuter.commuter.load_dotenv")

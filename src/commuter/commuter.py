@@ -7,26 +7,33 @@ from dataclasses import dataclass, replace
 from datetime import time
 from zoneinfo import ZoneInfo
 
-import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
-AMAP_URL = "https://restapi.amap.com/v3/direction/driving"
-GEOCODE_URL = "https://restapi.amap.com/v3/geocode/geo"
+from .serverchan import push_message
+from .amap import geocode_address, get_route_duration
 
 logger = logging.getLogger(__name__)
 
-WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
-
-def parse_work_days(value: str) -> str:
+def parse_workdays(value: str) -> str:
     """Convert comma-separated weekdays (1=Monday through 7=Sunday) for APScheduler."""
+    WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
     if not re.fullmatch(r"[1-7](?:\s*,\s*[1-7])*", value):
-        raise ValueError("WORK_DAY 必须是逗号分隔的数字 1-7（1=周一，7=周日）")
+        raise ValueError("WORKDAYS 必须是逗号分隔的数字 1-7（1=周一，7=周日）")
 
     weekdays = dict.fromkeys(int(day.strip()) for day in value.split(","))
     return ",".join(WEEKDAY_NAMES[day - 1] for day in weekdays)
+
+
+def weekdays_to_readable_text(value: str) -> str:
+    """Convert comma-separated APScheduler weekdays to human readable text."""
+    WEEKDAYS = {"mon": "一", "tue": "二", "wed": "三", "thu": "四", "fri": "五", "sat": "六", "sun": "日"}
+    selected = value.split(",")
+    if (set(selected) == set(WEEKDAYS)):
+        return "每天"
+    return "每周" + "、".join(WEEKDAYS[day] for day in WEEKDAYS if day in selected)
 
 
 @dataclass(frozen=True)
@@ -41,7 +48,7 @@ class Settings:
     work_to_home_waypoints_b: str
     work_time: time
     home_time: time
-    work_day: str
+    workdays: str
     timezone: str
 
     @classmethod
@@ -65,7 +72,7 @@ class Settings:
 
         work_time = os.environ.get("WORK_TIME", "09:00")
         home_time = os.environ.get("HOME_TIME", "17:00")
-        work_day = os.environ.get("WORK_DAY", "1,2,3,4,5")
+        workdays = os.environ.get("WORKDAYS", "1,2,3,4,5")
         timezone = os.environ.get("TIMEZONE", "Asia/Shanghai")
 
         time_pattern = r"(?:[01]\d|2[0-3]):[0-5]\d"
@@ -76,7 +83,7 @@ class Settings:
             home_time = time.fromisoformat(home_time)
         except ValueError as exc:
             raise ValueError("WORK_TIME 和 HOME_TIME 必须使用 HH:MM 格式") from exc
-        parse_work_days(work_day)
+        workdays = parse_workdays(workdays)
 
         return cls(
             amap_key=values["AMAP_KEY"],
@@ -89,37 +96,9 @@ class Settings:
             work_to_home_waypoints_b=values["WORK_TO_HOME_WAYPOINTS_B"],
             work_time=work_time,
             home_time=home_time,
-            work_day=work_day,
+            workdays=workdays,
             timezone=timezone,
         )
-
-
-def geocode_address(address: str, amap_key: str, city: str = "") -> str:
-    """Convert an address into an Amap longitude,latitude coordinate."""
-    params = {"key": amap_key, "address": address, "output": "json"}
-    if city:
-        params["city"] = city
-
-    response = requests.get(GEOCODE_URL, params=params, timeout=10)
-    response.raise_for_status()
-    result = response.json()
-    if result.get("status") != "1":
-        raise RuntimeError(f"高德地址解析失败：{result.get('info', '未知错误')}")
-
-    geocodes = result.get("geocodes", [])
-    if (
-        not isinstance(geocodes, list)
-        or not geocodes
-        or not isinstance(geocodes[0], dict)
-        or not geocodes[0].get("location")
-    ):
-        raise RuntimeError(f"高德地址解析失败：未找到地址“{address}”")
-    location = geocodes[0]["location"]
-    if not isinstance(location, str) or not re.fullmatch(
-        r"-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?", location
-    ):
-        raise RuntimeError("高德地址解析失败：返回的坐标格式无效")
-    return location
 
 
 def resolve_location(value: str, amap_key: str) -> str:
@@ -164,57 +143,6 @@ def resolve_locations(settings: Settings) -> Settings:
             settings.work_to_home_waypoints_b, settings.amap_key
         ),
     )
-
-
-def get_route_duration(
-    departure: str,
-    destination: str,
-    waypoints: str,
-    amap_key: str,
-) -> tuple[int, int]:
-    """Query Amap and return estimated travel time in seconds and distance in meters."""
-    params = {
-        "key": amap_key,
-        "origin": departure,
-        "destination": destination,
-        "strategy": "0",
-        "extensions": "base",
-    }
-    if waypoints:
-        params["waypoints"] = waypoints
-
-    response = requests.get(AMAP_URL, params=params, timeout=10)
-    response.raise_for_status()
-    result = response.json()
-    if result.get("status") != "1":
-        raise RuntimeError(f"高德路线查询失败：{result.get('info', '未知错误')}")
-
-    paths = result.get("route", {}).get("paths", [])
-    if not paths:
-        raise RuntimeError("高德路线查询失败：未找到路线")
-
-    try:
-        duration = int(paths[0]["duration"])
-        distance = int(paths[0]["distance"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError("高德路线响应缺少有效的耗时或距离") from exc
-    if duration <= 0:
-        raise RuntimeError("高德路线查询失败：路线耗时无效")
-    return duration, distance
-
-
-def push_message(title: str, content: str, serverchan_key: str) -> None:
-    """Push a message through Server酱."""
-    match = re.match(r"sctp(\d+)t", serverchan_key)
-    uid = match.group(1) if match else serverchan_key[:3]
-    api_url = f"https://{uid}.push.ft07.com/send/{serverchan_key}.send"
-    response = requests.post(
-        api_url,
-        json={"title": title, "desp": content},
-        timeout=10,
-    )
-    response.raise_for_status()
-
 
 def evaluate_routes(
     commute_name: str,
@@ -274,7 +202,7 @@ def create_scheduler(settings: Settings) -> BlockingScheduler:
         trigger=CronTrigger(
             hour=settings.work_time.hour,
             minute=settings.work_time.minute,
-            day_of_week=parse_work_days(settings.work_day),
+            day_of_week=settings.workdays,
             timezone=scheduler_timezone,
         ),
         args=[
@@ -294,7 +222,7 @@ def create_scheduler(settings: Settings) -> BlockingScheduler:
         trigger=CronTrigger(
             hour=settings.home_time.hour,
             minute=settings.home_time.minute,
-            day_of_week=parse_work_days(settings.work_day),
+            day_of_week=settings.workdays,
             timezone=scheduler_timezone,
         ),
         args=[
@@ -319,14 +247,14 @@ def main() -> None:
     )
     load_dotenv()
     settings = resolve_locations(Settings.from_environment())
+    scheduler = create_scheduler(settings)
     logger.info(
-        "通勤评估任务已启动，每周 %s 的 %s 和 %s 执行（时区：%s）",
-        settings.work_day,
+        "通勤评估任务已创建，%s 的 %s 和 %s 执行（时区：%s）",
+        weekdays_to_readable_text(settings.workdays),
         settings.work_time.strftime("%H:%M"),
         settings.home_time.strftime("%H:%M"),
         settings.timezone,
     )
-    scheduler = create_scheduler(settings)
     try:
         scheduler.start()
     except KeyboardInterrupt:
